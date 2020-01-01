@@ -11,6 +11,16 @@
 #define SENDBUFLEN 1484
 #define CHUNKSIZE 20
 
+#define WHOHAS_PACK 0
+#define IHAVE_PACK 1
+#define GET_PACK 2
+#define DATA_PACK 3
+#define ACK_PACK 4
+#define DENIED_PACK 5
+
+#define PACK_HEADER_LEN 16 
+
+
 typedef struct header_s
 {
   short magicnum;

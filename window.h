@@ -1,9 +1,13 @@
 #include <sys/types.h>
 #define sequen_t __u_int 
 #define WINDOWSIZE 8
-#define CHUNKSIZE 512 //chunk size is 512kB
+#define DATACHUNKSIZE 524288 //chunk size is 512kB
 #define timeout   1 //timeout = 1s
 #include <config.h>
+#include "dplist.h"
+#include <stdlib.h>
+#include <stdio.h>
+
 
 typedef struct {
     sequen_t LastAckReceived;
@@ -21,7 +25,9 @@ typedef struct {
 
 }packet_info_t;
 
-void send_data_packet(int sockfd,data_packet_t );
+
+void send_data_packet(int sockfd,dplist_t *packets);
 
 //split a chunk file and generate multiple DATA packets. store these DATA packets into linked list 
-void split_chunk_file(char *filepath, int offset);
+//offset should start with 0
+void split_chunk_file(char *filepath, int offset, dplist_t *packets);
