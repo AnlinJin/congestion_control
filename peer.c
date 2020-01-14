@@ -21,7 +21,7 @@
 #include "bt_parse.h"
 #include "input_buffer.h"
 #include <sys/select.h>
-#include "config.h"
+#include "peer.h"
 
 #define RECVBUFLEN 1500
 
@@ -54,19 +54,18 @@ int main(int argc, char **argv)
   peer_run(&config);
   return 0;
 }
-
-void process_inbound_udp(int sock)
+void response(int sock, data_packet_t *from_packet, struct sockaddr_in *from, socklen_t fromlen, int *ids)
 {
-
-  struct sockaddr_in from;
-  socklen_t fromlen = sizeof(from);
-  ///char buf[RECVBUFLEN];
-  data_packet_t *from_packet = malloc(sizeof(data_packet_t));
-  data_packet_t *ihave_packet = malloc(sizeof(data_packet_t));
-  //header_t ihave_header = ihave_packet->header;
-  //header_t from_header = from_packet->header;
-
   FILE *has_chunk = fopen(config.has_chunk_file, "r");
+  data_packet_t *ihave_packet = malloc(sizeof(data_packet_t));
+  memset(ihave_packet, 0, RECVBUFLEN);
+  ihave_packet->header.magicnum = 15441;
+  ihave_packet->header.version = 1;
+  ihave_packet->header.packet_type = 1;
+  ihave_packet->header.header_len = 16;
+  ihave_packet->header.seq_num = 0;
+  ihave_packet->header.ack_num = 0;
+  int nOfchunks = from_packet->data[0];
   int id;
   int nOfChunksHad = 0;
   int start_ihave = 4;
@@ -74,55 +73,31 @@ void process_inbound_udp(int sock)
   unsigned char hash[CHUNKSIZE];
   unsigned char buffer[41]; //20 bytes hash string(each hex number is treated as a char)
   unsigned char v;
-  int readStatus;
-  //header format
-  ihave_packet->header.magicnum = 15441;
-  ihave_packet->header.version = 1;
-  ihave_packet->header.packet_type = 1;
-  ihave_packet->header.header_len = 16;
-  ihave_packet->header.seq_num = 0;
-  ihave_packet->header.ack_num = 0;
-
-  printf("WHOHAS packet received\n"
-         "Incoming message from %s:%d\n\n\n",
-         inet_ntoa(from.sin_addr),
-         ntohs(from.sin_port));
-
-  readStatus = spiffy_recvfrom(sock, from_packet, RECVBUFLEN, 0, (struct sockaddr *)&from, &fromlen);
-  if (readStatus < 0) {
-    perror("reading error...\n");
-    close(sock);
-    exit(-1);
-  }
-  //sscanf(buf, "%hu%hhu%hhu%hu%hu%u%u%s", &from_header.magicnum, &from_header.version, &from_header.packet_type,
-  // &from_header.header_len, &from_header.packet_len, &from_header.seq_num, &from_header.ack_num, from_packet->data);
-  if (from_packet->header.magicnum == 15441 && from_packet->header.version == 1)
+  //char current_hash[CHUNKSIZE];
+  int start = 4;
+  for (int i = 0; i < nOfchunks; i++)
   {
-    int nOfchunks = from_packet->data[0];
-    char current_hash[CHUNKSIZE];
-    int start = 4;
-    for (int i = 0; i < nOfchunks; i++)
+    while (fscanf(has_chunk, "%d %s", &id, buffer) == 2)
     {
-      while (fscanf(has_chunk, "%d %s", &id, buffer) == 2)
+      for (int j = 0; j < 20; j++)
       {
-        for (int i = 0; i < 20; i++)
-        {
-          if (sscanf((char *)(buffer) + 2 * i, "%2hhx", &v) != 1)
-            break;
-          hash[i] = v;
-        }
-        if (memcmp(hash, from_packet->data + start, CHUNKSIZE) == 0)
-        {
-          nOfChunksHad++;
-          data_len += CHUNKSIZE;
-          memcpy(ihave_packet->data + start_ihave, hash, CHUNKSIZE);
-          start_ihave += CHUNKSIZE;
+        if (sscanf((char *)(buffer) + 2 * j, "%2hhx", &v) != 1)
           break;
-        }
+        hash[j] = v;
       }
-      start += 20;
+      if (memcmp(hash, from_packet->data + start, CHUNKSIZE) == 0)
+      {
+        nOfChunksHad++;
+        data_len += CHUNKSIZE;
+        memcpy(ihave_packet->data + start_ihave, hash, CHUNKSIZE);
+        ids[i] = id;
+        start_ihave += CHUNKSIZE;
+        break;
+      }
     }
+    start += 20;
   }
+
   if (nOfChunksHad != 0)
   {
     ihave_packet->data[0] = nOfChunksHad;
@@ -131,10 +106,59 @@ void process_inbound_udp(int sock)
       ihave_packet->data[i] = 0;
     }
     ihave_packet->header.packet_len = data_len;
-    spiffy_sendto(sock, (char *)ihave_packet, sizeof(ihave_packet), 0, (struct sockaddr *)&from, fromlen);
+    spiffy_sendto(sock, (char *)ihave_packet, sizeof(data_packet_t), 0, (struct sockaddr *)from, fromlen);
   }
 
   free(ihave_packet);
+}
+void process_inbound_udp(int sock)
+{
+
+  struct sockaddr_in from;
+  socklen_t fromlen = sizeof(from);
+  data_packet_t *from_packet = malloc(sizeof(data_packet_t));
+  memset(from_packet, 0, RECVBUFLEN);
+  int readStatus;
+  int ids[MAX_ID];
+  memset(ids, 0, sizeof(ids));
+  readStatus = spiffy_recvfrom(sock, from_packet, RECVBUFLEN, 0, (struct sockaddr *)&from, &fromlen);
+  printf("WHOHAS packet received\n"
+         "Incoming message from %s:%d\n%s\n\n",
+         inet_ntoa(from.sin_addr),
+         ntohs(from.sin_port), (char *)from_packet);
+
+  if (readStatus < 0)
+  {
+    perror("reading error...\n");
+    close(sock);
+    exit(-1);
+  }
+  //sscanf(buf, "%hu%hhu%hhu%hu%hu%u%u%s", &from_header.magicnum, &from_header.version, &from_header.packet_type,
+  // &from_header.header_len, &from_header.packet_len, &from_header.seq_num, &from_header.ack_num, from_packet->data);
+  if (from_packet->header.magicnum == 15441 && from_packet->header.version == 1 && from_packet->header.packet_type == WHOHAS_PACK)
+  {
+    //send ihave packet back
+    response(sock, from_packet, &from, fromlen, ids);
+    int index = 0;
+    int id = ids[index];
+
+    while (index == 0 || id != 0)
+    { 
+      //receive GET packet
+      spiffy_recvfrom(sock, from_packet, RECVBUFLEN, 0, (struct sockaddr *)&from, &fromlen);
+      if (from_packet->header.magicnum == 15441 && from_packet->header.version == 1 
+      && from_packet->header.packet_type == GET_PACK)
+      { 
+        char *masterData = malloc(BT_FILENAME_LEN);
+        get_master_data(config.chunk_file,masterData);
+        split_chunk_file(masterData, id);
+        send_data_packet(sock, &from, sizeof(from));
+        index++;
+        id = ids[index];
+        free(masterData);
+      }
+    }
+  }
   free(from_packet);
 }
 
@@ -144,15 +168,14 @@ void process_get(char *chunkfile, char *outputfile)
          chunkfile, outputfile);
   header_t whohas_header;
   data_packet_t *whohas_packet = malloc(sizeof(data_packet_t));
+  memset(whohas_packet, 0, RECVBUFLEN);
   FILE *chunkFile;
-  FILE *output;
-  struct sockaddr ip_addr;
-  socklen_t socklen;
-  int id, port;
-  int id2;
+
+  int id;
+
   int start = 4, length = 20;
   int nOfChunks = 0;
-  unsigned char a, b, c, d;
+
   unsigned char hash[20];
   unsigned char buffer[41]; //20 bytes hash string(each hex number is treated as a char)
   unsigned char v;
@@ -165,7 +188,7 @@ void process_get(char *chunkfile, char *outputfile)
 
   whohas_header.magicnum = 15441;
   whohas_header.version = 1;
-  whohas_header.packet_type = 0;
+  whohas_header.packet_type = WHOHAS_PACK;
   whohas_header.header_len = 16;
   whohas_header.seq_num = 0;
   whohas_header.ack_num = 0;
@@ -177,7 +200,6 @@ void process_get(char *chunkfile, char *outputfile)
   }
 
   chunkFile = fopen(chunkfile, "r");
-  output = fopen(outputfile, "w");
 
   while (fscanf(chunkFile, "%d %s", &id, buffer) == 2)
   {
@@ -203,21 +225,34 @@ void process_get(char *chunkfile, char *outputfile)
     {
       spiffy_sendto(sockfd, (char *)whohas_packet, sizeof(data_packet_t),
                     0, (struct sockaddr *)(&node->addr), sizeof(node->addr));
-      node = node->next;
     }
+    node = node->next;
   }
 
   struct sockaddr_in from;
-  socklen_t fromlen = sizeof(from);
+  socklen_t fromlen = sizeof(fromlen); // fromlen must be initialized to the size of the from.
+  //Its value might be changed by recefrom function
 
   data_packet_t *from_packet = malloc(sizeof(data_packet_t));
+  memset(from_packet, 0, RECVBUFLEN);
 
   spiffy_recvfrom(sockfd, from_packet, RECVBUFLEN, 0, (struct sockaddr *)&from, &fromlen);
-  printf("ihave packet received\n"
-         "Incoming message from %s:%d\n%s\n\n",
-         inet_ntoa(from.sin_addr),
-         ntohs(from.sin_port),
-         (char *)from_packet);
+
+  start = 4;
+  if (from_packet->header.magicnum == 15441 && from_packet->header.version == 1 && from_packet->header.packet_type == IHAVE_PACK)
+  {
+    printf("ihave packet received\n"
+           "Incoming message from %s:%d\n\n\n",
+           inet_ntoa(from.sin_addr),
+           ntohs(from.sin_port));
+    for (int i = 0; i < from_packet->data[0]; i++, start += CHUNKSIZE)
+    {
+      char hash[CHUNKSIZE];
+      memcpy(hash, from_packet->data + start, CHUNKSIZE);
+      send_get_packet(hash, sockfd, &from, fromlen);
+      receive_data_packet(sockfd, &from, fromlen, config.output_file);
+    }
+  }
   free(whohas_packet);
   free(from_packet);
 }
@@ -233,7 +268,9 @@ void handle_user_input(char *line, void *cbdata)
   {
     if (strlen(outf) > 0)
     {
+      strcpy(config.output_file,outf);
       process_get(chunkf, outf);
+      
     }
   }
 }
@@ -259,7 +296,7 @@ void peer_run(bt_config_t *config)
 
   bzero(&myaddr, sizeof(myaddr));
   myaddr.sin_family = AF_INET;
-  myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+  myaddr.sin_addr.s_addr = htonl(INADDR_ANY); //server socket binds to all the local ip address
   myaddr.sin_port = htons(config->myport);
 
   if (bind(sock, (struct sockaddr *)&myaddr, sizeof(myaddr)) == -1)
@@ -269,7 +306,7 @@ void peer_run(bt_config_t *config)
   }
 
   spiffy_init(config->identity, (struct sockaddr *)&myaddr, sizeof(myaddr));
-  bt_parse_peer_list(config);
+
   //(*config).sockfd = sock;
   while (1)
   {
@@ -293,4 +330,14 @@ void peer_run(bt_config_t *config)
       }
     }
   }
+}
+//no comment accepted in chunkfile
+void get_master_data(char *chunkfile, char *master_data) {
+  FILE *chunk_file = fopen(chunkfile,"r");
+  
+  if(fscanf(chunk_file,"File: %s",master_data) != 1) {
+    fprintf(stderr, "error with getting the name of master data\n");
+  }
+  fclose(chunk_file);
+  return;
 }

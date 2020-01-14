@@ -138,6 +138,7 @@ void bt_parse_peer_list(bt_config_t *config) {
   
   while (fgets(line, BT_FILENAME_LEN, f) != NULL) {
     if (line[0] == '#') continue;
+    if (line[0] == '\n') break;
     assert(sscanf(line, "%d %s %d", &nodeid, hostname, &port) != 0);
 
     node = (bt_peer_t *) malloc(sizeof(bt_peer_t));

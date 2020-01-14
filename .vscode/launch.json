@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/peer",
-            "args": ["-p","/tmp/nodes.map", "-c","/tmp/B.haschunks","-f","/tmp/C.masterchunks", "-m","4","-i","2"],
+            "args": ["-p","/tmp/nodes.map", "-c","/tmp/A.haschunks","-f","/tmp/C.masterchunks", "-m","4","-i","1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

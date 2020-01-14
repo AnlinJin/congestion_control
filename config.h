@@ -1,3 +1,5 @@
+#ifndef CONFIG_H
+#define CONFIG_H
 
 #include <assert.h>
 #include <sys/types.h>
@@ -10,6 +12,7 @@
 #define PACKETLEN 1500
 #define SENDBUFLEN 1484
 #define CHUNKSIZE 20
+#define MAX_ID 74
 
 #define WHOHAS_PACK 0
 #define IHAVE_PACK 1
@@ -19,6 +22,8 @@
 #define DENIED_PACK 5
 
 #define PACK_HEADER_LEN 16 
+#define VERSION 1
+#define MAGIC_NUMBER 15441
 
 
 typedef struct header_s
@@ -37,3 +42,4 @@ typedef struct data_packet
   header_t header;
   char data[SENDBUFLEN];
 } data_packet_t;
+#endif
